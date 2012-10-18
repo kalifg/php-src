@@ -74,6 +74,8 @@
 
 #define DEFAULT_PROMPT "\\b \\> "
 
+#define NEWLINE_FIX "1"
+
 ZEND_DECLARE_MODULE_GLOBALS(cli_readline);
 
 static char php_last_char = '\0';
@@ -109,11 +111,13 @@ static void cli_readline_init_globals(zend_cli_readline_globals *rg TSRMLS_DC)
 	rg->pager = NULL;
 	rg->prompt = NULL;
 	rg->prompt_str = NULL;
+	rg->newline_fix = 0;
 }
 
 PHP_INI_BEGIN()
 	STD_PHP_INI_ENTRY("cli.pager", "", PHP_INI_ALL, OnUpdateString, pager, zend_cli_readline_globals, cli_readline_globals)
 	STD_PHP_INI_ENTRY("cli.prompt", DEFAULT_PROMPT, PHP_INI_ALL, OnUpdateString, prompt, zend_cli_readline_globals, cli_readline_globals)
+	STD_PHP_INI_ENTRY("cli.newline_fix", NEWLINE_FIX, PHP_INI_ALL, OnUpdateBool, newline_fix, zend_cli_readline_globals, cli_readline_globals)
 PHP_INI_END()
 
 
@@ -661,6 +665,10 @@ static int readline_shell_run(TSRMLS_D) /* {{{ */
 		}
 
 		zend_try {
+            if (CLIR_G(newline_fix)) {
+                printf("\n");
+            }
+
 			zend_eval_stringl(code, pos, NULL, "php shell code" TSRMLS_CC);
 		} zend_end_try();
 

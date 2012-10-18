@@ -26,6 +26,7 @@ ZEND_BEGIN_MODULE_GLOBALS(cli_readline)
 	char *pager;
 	char *prompt;
 	smart_str *prompt_str;
+        int newline_fix;
 ZEND_END_MODULE_GLOBALS(cli_readline)
 
 #ifdef ZTS
