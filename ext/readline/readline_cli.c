@@ -74,7 +74,10 @@
 
 #define DEFAULT_PROMPT "\\b \\> "
 
-#define NEWLINE_FIX "1"
+#define NEWLINE_FIX "0"
+
+#define PRINT_RETURNS "0"
+#define PRINT_RETURN_FUNC "var_dump"
 
 ZEND_DECLARE_MODULE_GLOBALS(cli_readline);
 
@@ -112,12 +115,16 @@ static void cli_readline_init_globals(zend_cli_readline_globals *rg TSRMLS_DC)
 	rg->prompt = NULL;
 	rg->prompt_str = NULL;
 	rg->newline_fix = 0;
+	rg->print_returns = 0;
+	rg->print_return_func = NULL;
 }
 
 PHP_INI_BEGIN()
 	STD_PHP_INI_ENTRY("cli.pager", "", PHP_INI_ALL, OnUpdateString, pager, zend_cli_readline_globals, cli_readline_globals)
 	STD_PHP_INI_ENTRY("cli.prompt", DEFAULT_PROMPT, PHP_INI_ALL, OnUpdateString, prompt, zend_cli_readline_globals, cli_readline_globals)
 	STD_PHP_INI_ENTRY("cli.newline_fix", NEWLINE_FIX, PHP_INI_ALL, OnUpdateBool, newline_fix, zend_cli_readline_globals, cli_readline_globals)
+	STD_PHP_INI_ENTRY("cli.print_returns", PRINT_RETURNS, PHP_INI_ALL, OnUpdateBool, print_returns, zend_cli_readline_globals, cli_readline_globals)
+	STD_PHP_INI_ENTRY("cli.print_return_func", PRINT_RETURN_FUNC, PHP_INI_ALL, OnUpdateStringUnempty, print_return_func, zend_cli_readline_globals, cli_readline_globals)
 PHP_INI_END()
 
 
@@ -648,8 +655,10 @@ static int readline_shell_run(TSRMLS_D) /* {{{ */
 			size = pos + len + 2;
 			code = erealloc(code, size);
 		}
-		memcpy(&code[pos], line, len);
-		pos += len;
+
+        memcpy(&code[pos], line, len);
+        pos += len;
+
 		code[pos] = '\n';
 		code[++pos] = '\0';
 
@@ -664,17 +673,57 @@ static int readline_shell_run(TSRMLS_D) /* {{{ */
 			continue;
 		}
 
+        /* Trim whitespace from end */
+        int old_len = strlen(code);
+        char *endp = code + old_len;
+        while (isspace(*(--endp)) && endp != code);
+        *(endp + 2) = '\0';
+        
+        pos -= (old_len - strlen(code));
+
+        char *last_semi = strrchr(code, ';');
+
+        if (CLIR_G(print_returns) && ((last_semi - code + 2) == strlen(code))) {
+            char *pre_cmd = "call_user_func(function () { list($output, $retval) = call_user_func(function () {ob_start(); $retval = ";
+            char *suf_cmd1 = "; $output = ob_get_contents(); ob_end_clean(); return [$output, $retval];}); if (strlen($output) > 0) { print $output . \"\\n\\n\"; } print \"Returned:\\n\"; ";
+            char *suf_cmd2 = "($retval); });";
+            int pos_added = strlen(pre_cmd) + strlen(suf_cmd1) + strlen(CLIR_G(print_return_func)) + strlen(suf_cmd2) - 1;
+            char *new_code = emalloc(strlen(code) + pos_added + 1);
+
+            strcpy(new_code, pre_cmd);
+            strncat(new_code, code, last_semi - code);
+            strcat(new_code, suf_cmd1);
+            strcat(new_code, CLIR_G(print_return_func));
+            strcat(new_code, suf_cmd2);
+            strcat(new_code, "\n");
+
+            if (strlen(new_code) > size) {
+                size = strlen(new_code);
+                code = erealloc(code, size);
+            }
+
+            strcpy(code, new_code);
+            efree(new_code);
+
+            pos += pos_added;
+
+        }
+
 		zend_try {
             if (CLIR_G(newline_fix)) {
                 printf("\n");
             }
 
-			zend_eval_stringl(code, pos, NULL, "php shell code" TSRMLS_CC);
+            zend_eval_stringl(code, pos, NULL, "php shell code" TSRMLS_CC);
 		} zend_end_try();
 
 		pos = 0;
-					
+
 		if (!pager_pipe && php_last_char != '\0' && php_last_char != '\n') {
+            if (CLIR_G(newline_fix)) {
+                printf("\n");
+            }
+					
 			readline_shell_write("\n", 1 TSRMLS_CC);
 		}
 
